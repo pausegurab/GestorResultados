@@ -14,6 +14,16 @@ class PlantillaService {
     })
     return res.data
   }
+
+  async assignarDorsal(jugador_equip_temporada_id, dorsal, dorsal_start_jornada, dorsal_end_jornada = null) {
+    console.log('Assignant dorsal:', {jugador_equip_temporada_id, dorsal, dorsal_start_jornada, dorsal_end_jornada})
+    const res = await api.put(`/plantilla/${jugador_equip_temporada_id}/dorsal`, {
+      dorsal,
+      dorsal_start_jornada,
+      dorsal_end_jornada
+    })
+    return res.data
+  }
 }
 
 export default new PlantillaService()

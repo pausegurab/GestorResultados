@@ -18,7 +18,8 @@ class JugadorCreate(JugadorBase):
 
 class JugadorSchema(JugadorBase):
     id: int
-
+    id_plantilla : Optional[int] = None
+    dorsals: list[int] = []
     model_config = ConfigDict(from_attributes=True)
 
 

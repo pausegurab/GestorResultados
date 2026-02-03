@@ -28,6 +28,12 @@ const posicioLabels = {
   MIG: 'Migcampistes',
   DAV: 'Davanters'
 }
+const showModalDorsals = ref(false)
+const jugadorEditant = ref(null)
+const dorsalEdit = ref(null)
+const dorsalStartEdit = ref(null)
+const dorsalEndEdit = ref(null)
+const dorsalIdEdit = ref(null)
 
 onMounted(async () => {
   const id = route.params.id
@@ -67,6 +73,16 @@ const jugadorsFiltratsModal = computed(() =>
   )
 )
 
+const jugadorsPerPosicio = computed(() => {
+  const grups = {}
+  for (const jugador of plantilla.value) {
+    const pos = jugador.posicio || 'Altres'
+    if (!grups[pos]) grups[pos] = []
+    grups[pos].push(jugador)
+  }
+  return grups
+})
+
 async function carregarPlantilla() {
   if (equip.value && temporadaSeleccionada.value) {
     try {
@@ -98,15 +114,42 @@ async function guardarPlantilla() {
   }
 }
 
-const jugadorsPerPosicio = computed(() => {
-  const grups = {}
-  for (const jugador of plantilla.value) {
-    const pos = jugador.posicio || 'Altres'
-    if (!grups[pos]) grups[pos] = []
-    grups[pos].push(jugador)
+function obrirModalDorsals(jugador) {
+  console.log(jugador.id_plantilla)
+  jugadorEditant.value = jugador
+  if (jugador.dorsals.length > 0) {
+    const d = jugador.dorsals[0]
+    dorsalEdit.value = d.dorsal
+    dorsalStartEdit.value = d.dorsal_start_jornada
+    dorsalEndEdit.value = d.dorsal_end_jornada
+    dorsalIdEdit.value = jugador.id_plantilla
+  } else {
+    dorsalEdit.value = null
+    dorsalStartEdit.value = null
+    dorsalEndEdit.value = null
+    dorsalIdEdit.value = jugador.id_plantilla
   }
-  return grups
-})
+  showModalDorsals.value = true
+}
+
+function tancarModalDorsals() {
+  showModalDorsals.value = false
+}
+
+async function guardarDorsals() {
+  try {
+    if (dorsalIdEdit.value) {
+      console.log(dorsalIdEdit.value, dorsalEdit.value, dorsalStartEdit.value, dorsalEndEdit.value)
+      await PlantillaService.assignarDorsal(dorsalIdEdit.value, dorsalEdit.value, dorsalStartEdit.value, dorsalEndEdit.value)
+    } else {
+      alert('No es pot guardar un dorsal nou des d\'aquí. Utilitza la modificació de plantilla.')
+    }
+    await carregarPlantilla()
+    showModalDorsals.value = false
+  } catch (e) {
+    alert('Error actualitzant dorsals')
+  }
+}
 </script>
 
 <template>
@@ -141,11 +184,11 @@ const jugadorsPerPosicio = computed(() => {
       <table class="plantilla-taula">
         <thead>
           <tr>
-            <th>Dorsal</th>
-            <th>Foto</th>
-            <th>Nom</th>
-            <th>Posició</th>
-            <th>País</th>
+            <th style="text-align: center;">Dorsal</th>
+            <th style="text-align: center;">Foto</th>
+            <th style="text-align: center;">Nom</th>
+            <th style="text-align: center;">Posició</th>
+            <th style="text-align: center;">País</th>
           </tr>
         </thead>
         <tbody>
@@ -154,13 +197,29 @@ const jugadorsPerPosicio = computed(() => {
               <td :colspan="5" class="posicio-separador">{{ posicioLabels[posicio] || posicio }}</td>
             </tr>
             <tr v-for="jugador in jugadorsPerPosicio[posicio] || []" :key="jugador.id">
-              <td>{{ jugador.dorsal }}</td>
-              <td>
+              <td @click="obrirModalDorsals(jugador)" style="text-align: center; cursor: pointer;">
+                <div class="dorsal-box">
+                  <span v-for="(d, index) in jugador.dorsals" :key="d.id">
+          
+                    {{ d || 'N/A' }}
+                    <span v-if="index < jugador.dorsals.length - 1">, </span>
+                  </span>
+                </div>
+              </td>
+              <td style="text-align: center;">
                 <img v-if="jugador.url_imatge" :src="jugador.url_imatge" alt="Foto jugador" style="max-width:80px; max-height:80px; border-radius:12px;">
               </td>
-              <td>{{ jugador.sobrenom || `${jugador.nom} ${jugador.cognom_1}` }}</td>
-              <td>{{ jugador.posicio }}</td>
-              <td>
+              <td style="text-align: center;">
+                <div class="field-box">
+                  {{ jugador.sobrenom || `${jugador.nom} ${jugador.cognom_1}` }}
+                </div>
+              </td>
+              <td style="text-align: center;">
+                <div class="field-box">
+                  {{ jugador.posicio }}
+                </div>
+              </td>
+              <td style="text-align: center;">
                 <img
                   v-if="paisos.find(p => String(p.id) === String(jugador.nacionalitat))?.url_imatge"
                   :src="paisos.find(p => String(p.id) === String(jugador.nacionalitat)).url_imatge"
@@ -223,6 +282,22 @@ const jugadorsPerPosicio = computed(() => {
         <div class="modal-actions">
           <button @click="tancarModalPlantilla" type="button" class="btn-cancelar">Cancel·la</button>
           <button type="button" class="btn-desar" @click="guardarPlantilla">Desa plantilla</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal per editar dorsals -->
+    <div v-if="showModalDorsals" class="modal-overlay" @click.self="tancarModalDorsals">
+      <div class="modal-gran-centrat">
+        <h3>Editar dorsals per {{ jugadorEditant?.sobrenom || `${jugadorEditant?.nom} ${jugadorEditant?.cognom_1}` }}</h3>
+        <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center;">
+          <label>Dorsal: <input v-model.number="dorsalEdit" type="number" style="width: 60px;" /></label>
+          <label>Jornada Inicial: <input v-model.number="dorsalStartEdit" type="number" style="width: 100px;" /></label>
+          <label>Jornada Final: <input v-model.number="dorsalEndEdit" type="number" style="width: 100px;" /></label>
+        </div>
+        <div class="modal-actions">
+          <button @click="tancarModalDorsals" class="btn-cancelar">Cancel·la</button>
+          <button @click="guardarDorsals" class="btn-desar">Desa</button>
         </div>
       </div>
     </div>
@@ -412,5 +487,19 @@ section {
   border: none;
   height: 28px;
   letter-spacing: 1px;
+}
+.dorsal-box {
+  background: #ccc;
+  padding: 4px 8px;
+  display: inline-block;
+  border-radius: 4px;
+  font-weight: bold;
+}
+.field-box {
+  background: #ccc;
+  padding: 4px 8px;
+  display: inline-block;
+  border-radius: 4px;
+  font-weight: bold;
 }
 </style>
