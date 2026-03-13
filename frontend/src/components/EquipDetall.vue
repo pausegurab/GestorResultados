@@ -34,6 +34,8 @@ const dorsalEdit = ref(null)
 const dorsalStartEdit = ref(null)
 const dorsalEndEdit = ref(null)
 const dorsalIdEdit = ref(null)
+const showModalClonar = ref(false)
+const temporadaDestino = ref(null)
 
 onMounted(async () => {
   const id = route.params.id
@@ -135,6 +137,25 @@ function obrirModalDorsals(jugador) {
 function tancarModalDorsals() {
   showModalDorsals.value = false
 }
+function obrirModalClonar() {
+  temporadaDestino.value = temporadesOrdenades.value.length ? temporadesOrdenades.value[0].id : null
+  showModalClonar.value = true
+}
+
+function tancarModalClonar() {
+  showModalClonar.value = false
+}
+
+async function clonarPlantilla() {
+  if (!equip.value || !temporadaDestino.value) return
+  try {
+    await PlantillaService.clonarPlantilla(equip.value.id, temporadaSeleccionada.value, temporadaDestino.value)
+    alert('Plantilla clonada correctament!')
+    showModalClonar.value = false
+  } catch (e) {
+    alert('Error clonant plantilla')
+  }
+}
 
 async function guardarDorsals() {
   try {
@@ -179,6 +200,7 @@ async function guardarDorsals() {
             {{ t.any_inici }}-{{ t.any_fi }}
           </option>
         </select>
+        <button class="modificar-btn" @click="obrirModalClonar">Clonar plantilla</button>
         <button class="modificar-btn" @click="obrirModalPlantilla">Modificar plantilla</button>
       </div>
       <table class="plantilla-taula">
@@ -301,6 +323,21 @@ async function guardarDorsals() {
         </div>
       </div>
     </div>
+    <div v-if="showModalClonar" class="modal-overlay" @click.self="tancarModalClonar">
+      <div class="modal-gran-centrat">
+        <h3>Clonar plantilla a</h3>
+        <select v-model="temporadaDestino" class="temporada-select" style="margin-bottom: 1rem;">
+          <option v-for="t in temporadesOrdenades" :key="t.id" :value="t.id">
+            {{ t.any_inici }}-{{ t.any_fi }}
+          </option>
+        </select>
+        <div class="modal-actions">
+          <button @click="tancarModalClonar" type="button" class="btn-cancelar">Cancel·la</button>
+          <button type="button" class="btn-desar" @click="clonarPlantilla">Clonar</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 

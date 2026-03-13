@@ -15,7 +15,7 @@ from app.models.partits import Partit
 from app.models.equips import Equip
 from app.models.jugadors import Jugador
 
-from app.schemas.plantilla import Plantilla, PlantillaCreate
+from app.schemas.plantilla import Plantilla, PlantillaCreate, PlantillaCopy
 from app.models.jugadorstemporada import JugadorEquipTemporada
 from app.schemas.jugadors import JugadorSchema
 
@@ -55,6 +55,39 @@ def afegir_jugadors_plantilla(plantilla_in: PlantillaCreate, db: Session = Depen
         for j in nous_jugadors
     ]
 
+@router.post("/clone", response_model=List[Plantilla])
+def clonar_plantilla(plantilla_in: PlantillaCopy, db: Session = Depends(get_db)):
+    equip = db.query(Equip).filter(Equip.id == plantilla_in.equip_id).first()
+    if not equip:
+        raise HTTPException(status_code=404, detail="Equip no existeix")
+    jugadors_existents_id = db.query(JugadorEquipTemporada.jugador_id).filter(
+        JugadorEquipTemporada.equip_id == plantilla_in.equip_id,
+        JugadorEquipTemporada.temporada_id == plantilla_in.temporada_id  # filtramos por temporada
+    ).distinct().all()
+    nous_jugadors = []
+    for (jugador_id,) in jugadors_existents_id:
+        nou_jugador = JugadorEquipTemporada(
+            equip_id=plantilla_in.equip_id,
+            jugador_id=jugador_id,
+            temporada_id=plantilla_in.destino_temporada_id
+        )
+        db.add(nou_jugador)
+        print(nou_jugador)
+        db.flush()
+        db.refresh(nou_jugador)
+        nous_jugadors.append(nou_jugador)
+    
+    db.commit()
+
+    return [
+        Plantilla(
+            id=j.id,
+            jugador_id=j.jugador_id,
+            equip_id=j.equip_id,
+            temporada_id=j.temporada_id
+        )
+        for j in nous_jugadors
+    ]
 
 @router.get("/{equip_id}/{temporada_id}", response_model=List[JugadorSchema])
 def obtenir_plantilla(equip_id: int, temporada_id: int, db: Session = Depends(get_db)):

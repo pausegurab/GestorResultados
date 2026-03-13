@@ -8,6 +8,8 @@ class PlantillaBase(BaseModel):
 class PlantillaCreate(PlantillaBase):
     jugador_ids: List[int]
 
+class PlantillaCopy(PlantillaBase):
+    destino_temporada_id: int
 class Plantilla(PlantillaBase):
     id: int
     jugador_id: int

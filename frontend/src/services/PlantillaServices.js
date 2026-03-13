@@ -24,6 +24,15 @@ class PlantillaService {
     })
     return res.data
   }
+  async clonarPlantilla(equip_id, temporada_id, destino_temporada_id){
+    console.log("Clonant plantilla...")
+    const res = await api.post(`/plantilla/clone`, {
+      equip_id,
+      temporada_id,
+      destino_temporada_id
+    })
+    return res.data
+  }
 }
 
 export default new PlantillaService()

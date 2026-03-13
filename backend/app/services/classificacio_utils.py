@@ -138,44 +138,45 @@ def ordenar_classificacio(llista, fase_id, db,jornada=None):
     return resultat
 
 
-def update_classificacio(partit_updated: PartitSchema, db:Session):
-    local_id = partit_updated.equip_local_id
-    visitant_id = partit_updated.equip_visitant_id
-    gols_local = partit_updated.gols_local
+def update_classificacio(partit_updated: PartitSchema, db: Session):
+    local_id      = partit_updated.equip_local_id
+    visitant_id   = partit_updated.equip_visitant_id
+    gols_local    = partit_updated.gols_local
     gols_visitant = partit_updated.gols_visitant
-    jornada = partit_updated.jornada
+    jornada       = partit_updated.jornada
+    fase_id       = partit_updated.fase_id
 
-    fase_id = partit_updated.fase_id
-
-    
     cl_local = get_classificacio_individual(db, fase_id, jornada, local_id)
     cl_vis   = get_classificacio_individual(db, fase_id, jornada, visitant_id)
 
     if not cl_local or not cl_vis:
         raise HTTPException(status_code=404, detail="No s'ha trobat la classificació per algun equip")
-    
+
     if gols_local > gols_visitant:
-        _apply_stats(cl_local, guanyats=1, gf=gols_local, gc=gols_visitant, punts=3)
-        _apply_stats(cl_vis,   perduts=1,  gf=gols_visitant, gc=gols_local, punts=0)
+        delta_local = dict(guanyats=1, perduts=0, empats=0, gf=gols_local,    gc=gols_visitant, punts=3)
+        delta_vis   = dict(guanyats=0, perduts=1, empats=0, gf=gols_visitant, gc=gols_local,    punts=0)
     elif gols_local < gols_visitant:
-        _apply_stats(cl_local, perduts=1,  gf=gols_local, gc=gols_visitant, punts=0)
-        _apply_stats(cl_vis,   guanyats=1, gf=gols_visitant, gc=gols_local, punts=3)
+        delta_local = dict(guanyats=0, perduts=1, empats=0, gf=gols_local,    gc=gols_visitant, punts=0)
+        delta_vis   = dict(guanyats=1, perduts=0, empats=0, gf=gols_visitant, gc=gols_local,    punts=3)
     else:
-        _apply_stats(cl_local, empats=1, gf=gols_local, gc=gols_visitant, punts=1)
-        _apply_stats(cl_vis,   empats=1, gf=gols_visitant, gc=gols_local, punts=1)
+        delta_local = dict(guanyats=0, perduts=0, empats=1, gf=gols_local,    gc=gols_visitant, punts=1)
+        delta_vis   = dict(guanyats=0, perduts=0, empats=1, gf=gols_visitant, gc=gols_local,    punts=1)
+
+    _apply_stats(cl_local, **delta_local)
+    _apply_stats(cl_vis,   **delta_vis)
 
     db.commit()
     db.refresh(cl_local)
     db.refresh(cl_vis)
 
     crear_o_actualitzar_classificacio_equips(
-    db=db,
-    fase_id=fase_id,
-    jornada_actual=jornada,
-    affected_ids=[local_id, visitant_id]
+        db=db,
+        fase_id=fase_id,
+        jornada_actual=jornada,
+        affected_ids=[local_id, visitant_id],
+        deltas={local_id: delta_local, visitant_id: delta_vis},
     )
 
-    
     return {"local": cl_local, "visitant": cl_vis}
 
 
@@ -194,25 +195,37 @@ def revertir_classificacio(partit_antic: PartitSchema, db: Session):
         raise HTTPException(status_code=404, detail="Classificació no trobada")
 
     if gols_local > gols_visitant:
-        _apply_stats(cl_local, guanyats=-1, gf=-gols_local, gc=-gols_visitant, punts=-3)
-        _apply_stats(cl_vis,   perduts=-1,  gf=-gols_visitant, gc=-gols_local, punts=0)
+        delta_local = dict(guanyats=-1, perduts=0, empats=0, gf=-gols_local,    gc=-gols_visitant, punts=-3)
+        delta_vis   = dict(guanyats=0,  perduts=-1, empats=0, gf=-gols_visitant, gc=-gols_local,    punts=0)
     elif gols_local < gols_visitant:
-        _apply_stats(cl_local, perduts=-1,  gf=-gols_local, gc=-gols_visitant, punts=0)
-        _apply_stats(cl_vis,   guanyats=-1, gf=-gols_visitant, gc=-gols_local, punts=-3)
+        delta_local = dict(guanyats=0,  perduts=-1, empats=0, gf=-gols_local,    gc=-gols_visitant, punts=0)
+        delta_vis   = dict(guanyats=-1, perduts=0,  empats=0, gf=-gols_visitant, gc=-gols_local,    punts=-3)
     else:
-        _apply_stats(cl_local, empats=-1, gf=-gols_local, gc=-gols_visitant, punts=-1)
-        _apply_stats(cl_vis,   empats=-1, gf=-gols_visitant, gc=-gols_local, punts=-1)
+        delta_local = dict(guanyats=0, perduts=0, empats=-1, gf=-gols_local,    gc=-gols_visitant, punts=-1)
+        delta_vis   = dict(guanyats=0, perduts=0, empats=-1, gf=-gols_visitant, gc=-gols_local,    punts=-1)
+
+    _apply_stats(cl_local, **delta_local)
+    _apply_stats(cl_vis,   **delta_vis)
 
     db.commit()
+
+    # Propaguem el delta negatiu a totes les jornades posteriors
+    crear_o_actualitzar_classificacio_equips(
+        db=db,
+        fase_id=fase_id,
+        jornada_actual=jornada,
+        affected_ids=[local_id, visitant_id],
+        deltas={local_id: delta_local, visitant_id: delta_vis},
+    )
 
 
 def crear_o_actualitzar_classificacio_equips(
     db: Session,
     fase_id: int,
     jornada_actual: int,
-    affected_ids: Iterable[int]
+    affected_ids: Iterable[int],
+    deltas: dict[int, dict],
 ):
-    
     if not affected_ids:
         return
 
@@ -220,82 +233,56 @@ def crear_o_actualitzar_classificacio_equips(
     if not fase:
         raise HTTPException(status_code=404, detail="Fase no trobada")
 
-    equips = get_equips_by_temporada(db, fase.temporada_id)
-    num_equips = len(equips)
+    equips          = get_equips_by_temporada(db, fase.temporada_id)
+    num_equips      = len(equips)
     propera_jornada = jornada_actual + 1
-    max_jornades = (num_equips - 1) * 2
+    max_jornades    = (num_equips - 1) * 2
+
     if propera_jornada > max_jornades:
         return
 
-    
-    classificacions_actuals = db.query(Classificacio).filter(
-        Classificacio.fase_id == fase_id,
-        Classificacio.jornada == jornada_actual,
-        Classificacio.equip_id.in_(affected_ids)
-    ).all()
-
-    stats_by_equip = {c.equip_id: c for c in classificacions_actuals}
-
     for equip_id in affected_ids:
-        src = stats_by_equip.get(equip_id)
-        if not src:
+        delta = deltas.get(equip_id)
+        if not delta:
             continue
 
-        dst = db.query(Classificacio).filter(
-            Classificacio.fase_id == fase_id,
-            Classificacio.jornada == propera_jornada,
-            Classificacio.equip_id == equip_id
-        ).first()
+        for j in range(propera_jornada, max_jornades + 1):
+            actual = db.query(Classificacio).filter_by(
+                fase_id=fase_id,
+                jornada=j,
+                equip_id=equip_id,
+            ).first()
 
-        if dst:
-            for j in range(propera_jornada, max_jornades + 1):
+            if actual:
+                # Jornada ja existent: sumem el delta sense tocar
+                # els resultats que ja hi havia en aquesta jornada
+                actual.partits_guanyats += delta['guanyats']
+                actual.partits_perduts  += delta['perduts']
+                actual.partits_empats   += delta['empats']
+                actual.gols_favor       += delta['gf']
+                actual.gols_contra      += delta['gc']
+                actual.punts            += delta['punts']
+            else:
+                # Jornada sense fila: creem-la a partir de l'anterior + delta
                 anterior = db.query(Classificacio).filter_by(
                     fase_id=fase_id,
                     jornada=j - 1,
-                    equip_id=equip_id
+                    equip_id=equip_id,
                 ).first()
 
                 if not anterior:
-                    break  # Si no hi ha anterior, no té sentit continuar
+                    break
 
-                actual = db.query(Classificacio).filter_by(
-                    fase_id=fase_id,
-                    jornada=j,
-                    equip_id=equip_id
-                ).first()
-
-                if actual:
-                    actual.partits_guanyats = anterior.partits_guanyats
-                    actual.partits_perduts  = anterior.partits_perduts
-                    actual.partits_empats   = anterior.partits_empats
-                    actual.gols_favor       = anterior.gols_favor
-                    actual.gols_contra      = anterior.gols_contra
-                    actual.punts            = anterior.punts
-                else:
-                    db.add(Classificacio(
-                        fase_id=fase_id,
-                        jornada=j,
-                        equip_id=equip_id,
-                        partits_guanyats=anterior.partits_guanyats,
-                        partits_perduts=anterior.partits_perduts,
-                        partits_empats=anterior.partits_empats,
-                        gols_favor=anterior.gols_favor,
-                        gols_contra=anterior.gols_contra,
-                        punts=anterior.punts
-                    ))
-        else:
-            for i in range(jornada_actual+1, max_jornades+1):
-                print(i)
                 db.add(Classificacio(
                     fase_id=fase_id,
-                    jornada=i,
+                    jornada=j,
                     equip_id=equip_id,
-                    partits_guanyats=src.partits_guanyats,
-                    partits_perduts=src.partits_perduts,
-                    partits_empats=src.partits_empats,
-                    gols_favor=src.gols_favor,
-                    gols_contra=src.gols_contra,
-                    punts=src.punts
-                ))                
+                    partits_guanyats=anterior.partits_guanyats + delta['guanyats'],
+                    partits_perduts =anterior.partits_perduts  + delta['perduts'],
+                    partits_empats  =anterior.partits_empats   + delta['empats'],
+                    gols_favor      =anterior.gols_favor       + delta['gf'],
+                    gols_contra     =anterior.gols_contra      + delta['gc'],
+                    punts           =anterior.punts            + delta['punts'],
+                ))
 
     db.commit()
